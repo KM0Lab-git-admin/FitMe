@@ -147,6 +147,7 @@
   .svgchart{width:100%; height:auto; display:block}
   .placeholder{font-size:12.5px; color:var(--muted); text-align:center; padding:16px 4px}
   .syncstatus{font-size:11.5px; color:var(--muted); margin-top:10px; line-height:1.4}
+  .synchint{font-size:12px; color:var(--muted); margin:0 0 10px; line-height:1.4}
   .wnote{margin-top:11px; padding-top:11px; border-top:1px solid var(--line); font-size:12.5px; color:var(--agua); font-weight:600}
   .foot{font-size:11px; color:var(--muted); text-align:center; margin-top:18px; line-height:1.5}
 </style>
@@ -246,11 +247,11 @@
       <h2>Sincronizar entre dispositivos</h2>
       <div class="field"><label>Tu código personal (invéntate uno largo, solo tuyo)</label>
         <input type="text" id="syncCode" placeholder="p. ej. lobo-azul-47-café"></div>
+      <p class="synchint">Con el código puesto, cada cambio se guarda solo en la nube. Al abrir la app en otro dispositivo, se descarga automáticamente.</p>
       <div class="tools">
-        <button id="syncPush">⬆️ Subir mis datos</button>
-        <button id="syncPull">⬇️ Bajar mis datos</button>
+        <button id="syncNow">Sincronizar ahora</button>
       </div>
-      <div class="syncstatus" id="syncStatus">Aún no sincronizado en este dispositivo.</div>
+      <div class="syncstatus" id="syncStatus">Escribe un código para activar la sincronización.</div>
     </div>
   </section>
 
@@ -326,7 +327,9 @@ if(!store.ok){ document.getElementById('banner').classList.add('show'); }
 
 let DATA={};
 try{ DATA=JSON.parse(store.get(KEY)||'{}'); }catch(e){ DATA={}; }
-function save(){ store.set(KEY, JSON.stringify(DATA)); }
+let syncReady=false;
+let syncTimer=null;
+function save(){ store.set(KEY, JSON.stringify(DATA)); scheduleCloudSync(); }
 
 /* ---------- medidas corporales (integrado desde tu Excel) ---------- */
 const ALT_M=1.73, ALT_CM=173, EDAD=47;
@@ -338,8 +341,20 @@ const BASELINE={peso:72.5, cO:96, cE:91, cad:92, pecho:103, cuello:40, bD:36, bI
 let MDATA={};
 try{ MDATA=JSON.parse(store.get(MKEY)||'{}'); }catch(e){ MDATA={}; }
 if(!MDATA[BASELINE_DATE]){ MDATA[BASELINE_DATE]=Object.assign({},BASELINE); }
-function msave(){ store.set(MKEY, JSON.stringify(MDATA)); }
+function msave(){ store.set(MKEY, JSON.stringify(MDATA)); scheduleCloudSync(); }
 msave();
+
+function scheduleCloudSync(){
+  if(!syncReady) return;
+  const code=(document.getElementById('syncCode')?.value||store.get('sync_code_v1')||'').trim();
+  if(!code) return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(()=>{ pushToCloud(); }, 700);
+}
+function applyLocalOnly(){
+  store.set(KEY, JSON.stringify(DATA));
+  store.set(MKEY, JSON.stringify(MDATA));
+}
 
 function calcIMC(peso){ return (peso==null)?null:peso/(ALT_M*ALT_M); }
 function calcNavy(c,cu){ if(c==null||cu==null||c<=cu)return null; return 495/(1.0324 - 0.19077*Math.log10(c-cu) + 0.15456*Math.log10(ALT_CM)) - 450; }
@@ -515,8 +530,9 @@ const HLABEL={agua:'Agua',des:'Desayuno',com:'Comida',mer:'Merienda',cen:'Cena',
 function dayType(d){ const w=d.getDay(); if(w===1||w===2)return'oficina'; if(w===0||w===6)return'finde'; return'casa'; }
 function schedule(t){ return t==='oficina'?OFICINA : t==='finde'?FINDE : CASA; }
 function habitsFor(t){ return t==='finde'?HAB_WE:HAB_WD; }
-function iso(d){ return d.toISOString().slice(0,10); }
 function pad(n){return String(n).padStart(2,'0');}
+/* Clave de día en hora LOCAL (no UTC): toISOString() adelantaba/atrasaba el día en ES. */
+function iso(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
 
 const START=new Date('2026-08-03T00:00'); START.setHours(0,0,0,0);
 let cur=new Date(); cur.setHours(0,0,0,0);
@@ -665,46 +681,83 @@ document.getElementById('rst').onclick=()=>{
   if(confirm('¿Borrar todos los registros? Esto no se puede deshacer.')){ DATA={}; save(); render(); }
 };
 
-/* ---------- sincronización entre dispositivos (Upstash vía /api/data) ---------- */
+/* ---------- sincronización automática (Upstash vía /api/data) ---------- */
 const SYNC_CODE_KEY='sync_code_v1';
 const syncCodeInput=document.getElementById('syncCode');
 syncCodeInput.value = store.get(SYNC_CODE_KEY) || '';
-syncCodeInput.addEventListener('change', ()=>{ store.set(SYNC_CODE_KEY, syncCodeInput.value.trim()); });
 function setSyncStatus(msg){ document.getElementById('syncStatus').textContent = msg; }
+function currentSyncCode(){ return (syncCodeInput.value || store.get(SYNC_CODE_KEY) || '').trim(); }
 
-document.getElementById('syncPush').onclick = async () => {
-  const code = syncCodeInput.value.trim();
-  if(!code){ alert('Escribe primero tu código personal.'); return; }
+async function pushToCloud(){
+  const code=currentSyncCode();
+  if(!code){ setSyncStatus('Escribe un código para activar la sincronización.'); return false; }
   store.set(SYNC_CODE_KEY, code);
-  setSyncStatus('Subiendo…');
+  setSyncStatus('Guardando en la nube…');
   try{
-    const payload = { habits: DATA, medidas: MDATA };
-    const r = await fetch('/api/data', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code, data: payload }) });
-    const j = await r.json();
+    const payload={ habits:DATA, medidas:MDATA };
+    const r=await fetch('/api/data',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ code, data:payload }) });
+    const j=await r.json();
     if(!r.ok) throw new Error(j.error||'Error al subir');
-    setSyncStatus('Subido ✅ · '+ new Date().toLocaleString('es-ES'));
-  }catch(e){ setSyncStatus('⚠️ Error al subir: '+e.message+' (¿ya está desplegado en Vercel con Upstash conectado?)'); }
-};
+    setSyncStatus('Sincronizado ✅ · '+ new Date().toLocaleString('es-ES'));
+    return true;
+  }catch(e){
+    setSyncStatus('⚠️ No se pudo guardar en la nube: '+e.message);
+    return false;
+  }
+}
 
-document.getElementById('syncPull').onclick = async () => {
-  const code = syncCodeInput.value.trim();
-  if(!code){ alert('Escribe primero tu código personal.'); return; }
+async function pullFromCloud(){
+  const code=currentSyncCode();
+  if(!code){ setSyncStatus('Escribe un código para activar la sincronización.'); return false; }
   store.set(SYNC_CODE_KEY, code);
   setSyncStatus('Descargando…');
   try{
-    const r = await fetch('/api/data?code='+encodeURIComponent(code));
-    const j = await r.json();
+    const r=await fetch('/api/data?code='+encodeURIComponent(code));
+    const j=await r.json();
     if(!r.ok) throw new Error(j.error||'Error al bajar');
-    if(!j.data){ setSyncStatus('No hay datos guardados todavía con ese código.'); return; }
-    if(confirm('Esto sustituirá los datos de ESTE dispositivo por los guardados en la nube. ¿Continuar?')){
-      DATA = j.data.habits || {};
-      MDATA = j.data.medidas || {};
-      if(!MDATA[BASELINE_DATE]) MDATA[BASELINE_DATE]=Object.assign({},BASELINE);
-      save(); msave(); render(); renderMedidas();
-      setSyncStatus('Descargado ✅ · '+ new Date().toLocaleString('es-ES'));
-    } else { setSyncStatus('Descarga cancelada.'); }
-  }catch(e){ setSyncStatus('⚠️ Error al bajar: '+e.message+' (¿ya está desplegado en Vercel con Upstash conectado?)'); }
-};
+    if(!j.data){
+      setSyncStatus('Código activo. Aún no hay datos en la nube; se subirán al guardar.');
+      return false;
+    }
+    DATA=j.data.habits||{};
+    MDATA=j.data.medidas||{};
+    if(!MDATA[BASELINE_DATE]) MDATA[BASELINE_DATE]=Object.assign({},BASELINE);
+    applyLocalOnly();
+    setSyncStatus('Actualizado desde la nube ✅ · '+ new Date().toLocaleString('es-ES'));
+    return true;
+  }catch(e){
+    setSyncStatus('⚠️ No se pudo descargar: '+e.message+' (se usan los datos locales)');
+    return false;
+  }
+}
+
+async function syncNow(){
+  const code=currentSyncCode();
+  if(!code){ alert('Escribe primero tu código personal.'); return; }
+  const pulled=await pullFromCloud();
+  if(!pulled) await pushToCloud();
+  render();
+  renderMedidas();
+}
+
+syncCodeInput.addEventListener('change', async ()=>{
+  const code=currentSyncCode();
+  store.set(SYNC_CODE_KEY, code);
+  if(!code){ setSyncStatus('Escribe un código para activar la sincronización.'); return; }
+  await syncNow();
+});
+document.getElementById('syncNow').onclick=()=>syncNow();
+
+(async function bootSync(){
+  if(currentSyncCode()){
+    await pullFromCloud();
+    render();
+    renderMedidas();
+  } else {
+    setSyncStatus('Escribe un código para activar la sincronización.');
+  }
+  syncReady=true;
+})();
 
 render();
 renderMedidas();

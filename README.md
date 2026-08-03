@@ -15,11 +15,11 @@ Hay dos capas:
 
 **Cómo se usa la sincronización, en la pestaña Progreso:**
 - Escribe un **código personal** largo y que no sea obvio (no tu nombre ni tu cumpleaños — cualquiera que lo sepa puede leer y escribir en tu registro, no hay contraseña real detrás).
-- **⬆️ Subir mis datos**: guarda lo que tienes en ese dispositivo en la nube.
-- **⬇️ Bajar mis datos**: trae lo que haya en la nube y sustituye lo del dispositivo actual (pide confirmación).
-- Usa el mismo código en cada dispositivo. Sube desde uno, baja en el otro.
+- Con el código activo, **cada cambio** (hábitos, medidas, borrados…) se guarda solo en la nube tras un instante.
+- Al **abrir la app** en otro dispositivo con el mismo código, se descargan automáticamente los datos de la nube.
+- El botón **Sincronizar ahora** fuerza una descarga (y, si la nube está vacía, una subida).
 
-> Es una sincronización manual y sencilla ("último que sube, gana"), no en tiempo real ni con fusión automática de cambios. Para uso personal en 2-3 dispositivos es más que suficiente.
+> Es "último que escribe, gana": no fusiona cambios concurrentes en dos dispositivos a la vez. Para uso personal en 2-3 dispositivos es suficiente.
 
 ## Desplegar en Vercel
 
@@ -38,7 +38,7 @@ Esta sección es la explicación para ti. Si vas a usar un plugin o automatismo 
 2. En https://vercel.com/new, **Import Git Repository** y selecciona el repo.
 3. Framework Preset: `Other` (no toques nada más). Pulsa **Deploy**.
 
-En este punto el sitio ya funciona con localStorage. Los botones de sincronización darán un error hasta el Paso 2.
+En este punto el sitio ya funciona con localStorage. La sincronización en la nube dará error hasta el Paso 2.
 
 ### Paso 2 — Conectar la base de datos (Upstash)
 1. En el dashboard de tu proyecto en Vercel, ve a la pestaña **Storage**.
@@ -47,7 +47,7 @@ En este punto el sitio ya funciona con localStorage. Los botones de sincronizaci
 4. Esto añade automáticamente dos variables de entorno a tu proyecto: `KV_REST_API_URL` y `KV_REST_API_TOKEN`. No hace falta que las copies a mano.
 5. **Vuelve a desplegar** el proyecto (Vercel → pestaña Deployments → "..." → Redeploy) para que la función `api/data.js` las reciba.
 
-A partir de aquí, los botones "Subir mis datos" / "Bajar mis datos" de la pestaña Progreso funcionan de verdad.
+A partir de aquí, con un código personal en la pestaña Progreso, los datos se sincronizan solos con Upstash.
 
 ### Comprobar que funciona
 Abre la app, pestaña **Progreso**, escribe un código de prueba, pulsa **Subir**. Debería decir "Subido ✅". Si da error, revisa que el paso 2 esté hecho y que hayas vuelto a desplegar después de conectar Upstash.
