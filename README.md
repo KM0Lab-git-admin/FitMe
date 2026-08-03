@@ -10,16 +10,10 @@ Aplicación web (`index.html` + una función de servidor en `api/data.js`) para:
 
 Hay dos capas:
 
-1. **localStorage** (siempre activo, sin configurar nada): cada dispositivo guarda su copia local en el navegador, en JSON. Es lo que ya tenías.
-2. **Sincronización en la nube** (opcional, requiere el paso de Upstash de más abajo): con un **código personal** que tú eliges, la app sube y baja tus datos a una base de datos Redis (Upstash), para que muevas la información entre el móvil, la tablet y el PC.
+1. **localStorage** (siempre): copia rápida en el navegador.
+2. **Servidor (Upstash Redis)**: cada clic (hábito, medida, etc.) se guarda solo en la nube. Al abrir la app en otro dispositivo, se cargan los datos del servidor. No hay pantalla de sincronización ni códigos que escribir.
 
-**Cómo se usa la sincronización, en la pestaña Progreso:**
-- Escribe un **código personal** largo y que no sea obvio (no tu nombre ni tu cumpleaños — cualquiera que lo sepa puede leer y escribir en tu registro, no hay contraseña real detrás).
-- Con el código activo, **cada cambio** (hábitos, medidas, borrados…) se guarda solo en la nube tras un instante.
-- Al **abrir la app** en otro dispositivo con el mismo código, se descargan automáticamente los datos de la nube.
-- El botón **Sincronizar ahora** fuerza una descarga (y, si la nube está vacía, una subida).
-
-> Es "último que escribe, gana": no fusiona cambios concurrentes en dos dispositivos a la vez. Para uso personal en 2-3 dispositivos es suficiente.
+> Es "último que escribe, gana". Para uso personal en 2–3 dispositivos es suficiente.
 
 ## Desplegar en Vercel
 
@@ -47,10 +41,10 @@ En este punto el sitio ya funciona con localStorage. La sincronización en la nu
 4. Esto añade automáticamente dos variables de entorno a tu proyecto: `KV_REST_API_URL` y `KV_REST_API_TOKEN`. No hace falta que las copies a mano.
 5. **Vuelve a desplegar** el proyecto (Vercel → pestaña Deployments → "..." → Redeploy) para que la función `api/data.js` las reciba.
 
-A partir de aquí, con un código personal en la pestaña Progreso, los datos se sincronizan solos con Upstash.
+A partir de aquí, cada cambio en la app se guarda solo en Upstash (y se carga al abrir en otro dispositivo).
 
 ### Comprobar que funciona
-Abre la app, pestaña **Progreso**, escribe un código de prueba, pulsa **Subir**. Debería decir "Subido ✅". Si da error, revisa que el paso 2 esté hecho y que hayas vuelto a desplegar después de conectar Upstash.
+Marca un hábito en un dispositivo, abre la app en otro y debería verse. Si no, revisa que el paso 2 esté hecho y que hayas vuelto a desplegar después de conectar Upstash.
 
 ## Estructura del repositorio
 ```
@@ -73,5 +67,5 @@ mi-plan-web/
 Abre la URL de Vercel en Safari (iPhone) o Chrome (Android) y usa "Añadir a pantalla de inicio" para que se comporte como una app.
 
 ## Seguridad — léelo antes de usarlo
-El "código personal" **no es una contraseña con usuario**: es simplemente la clave bajo la que se guardan tus datos en Redis. Cualquiera que conozca ese código exacto podría leer o sobrescribir tu registro. Para uso personal está bien si el código es largo y no es adivinable (evita tu nombre, fecha de nacimiento, etc.). No es el nivel de seguridad de una app con login real — si eso te preocupa, se podría añadir más adelante, pero para este caso de uso no hace falta.
+La clave de Redis está fijada en el código de la app (uso personal de un solo “espacio” de datos). Quien conozca la URL de la API y esa clave podría leer o sobrescribir el registro. No es un login real; para este caso de uso personal es suficiente.
 

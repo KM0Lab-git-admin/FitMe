@@ -146,8 +146,6 @@
   .chartlabel{font-size:12.5px; font-weight:500; margin-bottom:2px}
   .svgchart{width:100%; height:auto; display:block}
   .placeholder{font-size:12.5px; color:var(--muted); text-align:center; padding:16px 4px}
-  .syncstatus{font-size:11.5px; color:var(--muted); margin-top:10px; line-height:1.4}
-  .synchint{font-size:12px; color:var(--muted); margin:0 0 10px; line-height:1.4}
   .wnote{margin-top:11px; padding-top:11px; border-top:1px solid var(--line); font-size:12.5px; color:var(--agua); font-weight:600}
   .foot{font-size:11px; color:var(--muted); text-align:center; margin-top:18px; line-height:1.5}
 </style>
@@ -242,17 +240,6 @@
         <input type="file" id="impFile" accept="application/json" class="hide">
       </div>
     </div>
-
-    <div class="card">
-      <h2>Sincronizar entre dispositivos</h2>
-      <div class="field"><label>Tu código personal (invéntate uno largo, solo tuyo)</label>
-        <input type="text" id="syncCode" placeholder="p. ej. lobo-azul-47-café"></div>
-      <p class="synchint">Con el código puesto, cada cambio se guarda solo en la nube. Al abrir la app en otro dispositivo, se descarga automáticamente.</p>
-      <div class="tools">
-        <button id="syncNow">Sincronizar ahora</button>
-      </div>
-      <div class="syncstatus" id="syncStatus">Escribe un código para activar la sincronización.</div>
-    </div>
   </section>
 
   <!-- MEDIDAS -->
@@ -308,7 +295,7 @@
     </div>
   </section>
 
-  <div class="foot">Los datos se guardan en este navegador (localStorage, formato JSON).<br>Haz "Exportar copia" de vez en cuando como respaldo.</div>
+  <div class="foot">Cada cambio se guarda en este dispositivo y en el servidor.<br>Haz "Exportar copia" de vez en cuando como respaldo extra.</div>
 </div>
 
 <script>
@@ -327,6 +314,7 @@ if(!store.ok){ document.getElementById('banner').classList.add('show'); }
 
 let DATA={};
 try{ DATA=JSON.parse(store.get(KEY)||'{}'); }catch(e){ DATA={}; }
+const CLOUD_CODE='fitme-plan-v1';
 let syncReady=false;
 let syncTimer=null;
 function save(){ store.set(KEY, JSON.stringify(DATA)); scheduleCloudSync(); }
@@ -346,10 +334,8 @@ msave();
 
 function scheduleCloudSync(){
   if(!syncReady) return;
-  const code=(document.getElementById('syncCode')?.value||store.get('sync_code_v1')||'').trim();
-  if(!code) return;
   clearTimeout(syncTimer);
-  syncTimer=setTimeout(()=>{ pushToCloud(); }, 700);
+  syncTimer=setTimeout(pushToCloud, 400);
 }
 function applyLocalOnly(){
   store.set(KEY, JSON.stringify(DATA));
@@ -681,82 +667,40 @@ document.getElementById('rst').onclick=()=>{
   if(confirm('¿Borrar todos los registros? Esto no se puede deshacer.')){ DATA={}; save(); render(); }
 };
 
-/* ---------- sincronización automática (Upstash vía /api/data) ---------- */
-const SYNC_CODE_KEY='sync_code_v1';
-const syncCodeInput=document.getElementById('syncCode');
-syncCodeInput.value = store.get(SYNC_CODE_KEY) || '';
-function setSyncStatus(msg){ document.getElementById('syncStatus').textContent = msg; }
-function currentSyncCode(){ return (syncCodeInput.value || store.get(SYNC_CODE_KEY) || '').trim(); }
-
+/* ---------- nube: cada guardado → servidor; al abrir → descarga ---------- */
 async function pushToCloud(){
-  const code=currentSyncCode();
-  if(!code){ setSyncStatus('Escribe un código para activar la sincronización.'); return false; }
-  store.set(SYNC_CODE_KEY, code);
-  setSyncStatus('Guardando en la nube…');
   try{
-    const payload={ habits:DATA, medidas:MDATA };
-    const r=await fetch('/api/data',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ code, data:payload }) });
-    const j=await r.json();
-    if(!r.ok) throw new Error(j.error||'Error al subir');
-    setSyncStatus('Sincronizado ✅ · '+ new Date().toLocaleString('es-ES'));
-    return true;
-  }catch(e){
-    setSyncStatus('⚠️ No se pudo guardar en la nube: '+e.message);
-    return false;
-  }
+    const r=await fetch('/api/data',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ code:CLOUD_CODE, data:{ habits:DATA, medidas:MDATA } })
+    });
+    if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.error||r.status); }
+  }catch(e){ console.warn('No se pudo guardar en el servidor:', e.message||e); }
 }
 
 async function pullFromCloud(){
-  const code=currentSyncCode();
-  if(!code){ setSyncStatus('Escribe un código para activar la sincronización.'); return false; }
-  store.set(SYNC_CODE_KEY, code);
-  setSyncStatus('Descargando…');
   try{
-    const r=await fetch('/api/data?code='+encodeURIComponent(code));
+    const r=await fetch('/api/data?code='+encodeURIComponent(CLOUD_CODE));
     const j=await r.json();
-    if(!r.ok) throw new Error(j.error||'Error al bajar');
-    if(!j.data){
-      setSyncStatus('Código activo. Aún no hay datos en la nube; se subirán al guardar.');
-      return false;
-    }
+    if(!r.ok) throw new Error(j.error||r.status);
+    if(!j.data) return false;
     DATA=j.data.habits||{};
     MDATA=j.data.medidas||{};
     if(!MDATA[BASELINE_DATE]) MDATA[BASELINE_DATE]=Object.assign({},BASELINE);
     applyLocalOnly();
-    setSyncStatus('Actualizado desde la nube ✅ · '+ new Date().toLocaleString('es-ES'));
     return true;
   }catch(e){
-    setSyncStatus('⚠️ No se pudo descargar: '+e.message+' (se usan los datos locales)');
+    console.warn('No se pudo leer el servidor:', e.message||e);
     return false;
   }
 }
 
-async function syncNow(){
-  const code=currentSyncCode();
-  if(!code){ alert('Escribe primero tu código personal.'); return; }
-  const pulled=await pullFromCloud();
-  if(!pulled) await pushToCloud();
+(async function bootCloud(){
+  await pullFromCloud();
+  syncReady=true;
   render();
   renderMedidas();
-}
-
-syncCodeInput.addEventListener('change', async ()=>{
-  const code=currentSyncCode();
-  store.set(SYNC_CODE_KEY, code);
-  if(!code){ setSyncStatus('Escribe un código para activar la sincronización.'); return; }
-  await syncNow();
-});
-document.getElementById('syncNow').onclick=()=>syncNow();
-
-(async function bootSync(){
-  if(currentSyncCode()){
-    await pullFromCloud();
-    render();
-    renderMedidas();
-  } else {
-    setSyncStatus('Escribe un código para activar la sincronización.');
-  }
-  syncReady=true;
 })();
 
 render();
