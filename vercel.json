@@ -1,3 +1,10 @@
 {
-  "framework": null
+  "framework": null,
+  "redirects": [
+    {
+      "source": "/ketoWay",
+      "destination": "/ketoWay/",
+      "permanent": true
+    }
+  ]
 }
